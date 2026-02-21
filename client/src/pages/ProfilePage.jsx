@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 
@@ -11,6 +11,10 @@ export default function ProfilePage() {
   const [saveStatus, setSaveStatus] = useState(''); // '' | 'saved' | 'error'
   const [skillInput, setSkillInput] = useState('');
   const [titleInput, setTitleInput] = useState('');
+  const [uploadStatus, setUploadStatus] = useState(''); // '' | 'uploading' | 'success' | 'error'
+  const [uploadError, setUploadError] = useState('');
+  const [dragOver, setDragOver] = useState(false);
+  const fileInputRef = useRef(null);
 
   useEffect(() => {
     axios.get('/api/profiles')
@@ -61,6 +65,39 @@ export default function ProfilePage() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleResumeFile = async (file) => {
+    if (!file) return;
+    const allowed = ['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/msword'];
+    if (!allowed.includes(file.type)) {
+      setUploadError('Please upload a PDF or Word document (.pdf, .docx, .doc)');
+      setUploadStatus('error');
+      return;
+    }
+    setUploadStatus('uploading');
+    setUploadError('');
+    const formData = new FormData();
+    formData.append('resume', file);
+    try {
+      const res = await axios.post(`/api/profiles/${id}/resume/upload`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      handleChange('resumeText', res.data.resumeText);
+      setUploadStatus('success');
+      setTimeout(() => setUploadStatus(''), 4000);
+    } catch (err) {
+      setUploadError(err.response?.data?.error || 'Upload failed. Please try again.');
+      setUploadStatus('error');
+    }
+  };
+
+  const handleFileInputChange = (e) => handleResumeFile(e.target.files[0]);
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    setDragOver(false);
+    handleResumeFile(e.dataTransfer.files[0]);
   };
 
   if (loading || !profile) {
@@ -119,12 +156,61 @@ export default function ProfilePage() {
         {/* Resume */}
         <section className="space-y-3">
           <h2 className="text-base font-semibold text-slate-800 border-b border-slate-100 pb-2">Resume / Summary</h2>
+
+          {/* Upload drop zone */}
+          <div
+            onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={handleDrop}
+            onClick={() => fileInputRef.current?.click()}
+            className={`flex flex-col items-center justify-center gap-2 border-2 border-dashed rounded-lg px-4 py-6 cursor-pointer transition-colors ${
+              dragOver ? 'border-indigo-500 bg-indigo-50' : 'border-slate-300 hover:border-indigo-400 hover:bg-slate-50'
+            }`}
+          >
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+              onChange={handleFileInputChange}
+              className="hidden"
+            />
+            {uploadStatus === 'uploading' ? (
+              <div className="flex items-center gap-2 text-indigo-600 text-sm font-medium">
+                <svg className="animate-spin h-5 w-5" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                </svg>
+                Parsing resume…
+              </div>
+            ) : uploadStatus === 'success' ? (
+              <div className="flex items-center gap-2 text-emerald-600 text-sm font-medium">
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+                Resume imported successfully!
+              </div>
+            ) : (
+              <>
+                <svg className="h-8 w-8 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5V18a2.25 2.25 0 002.25 2.25h13.5A2.25 2.25 0 0021 18v-1.5M16.5 12l-4.5-4.5m0 0L7.5 12m4.5-4.5V18" />
+                </svg>
+                <p className="text-sm text-slate-600 font-medium">Drop your resume here or <span className="text-indigo-600">browse</span></p>
+                <p className="text-xs text-slate-400">PDF or Word document · max 10 MB</p>
+              </>
+            )}
+          </div>
+
+          {uploadStatus === 'error' && (
+            <p className="text-sm text-red-600">{uploadError}</p>
+          )}
+
+          {/* Editable text area – populated automatically after upload */}
           <textarea
             value={profile.resumeText || ''}
             onChange={e => handleChange('resumeText', e.target.value)}
-            placeholder="Paste your resume text or write a summary of your experience. The more detail here, the better Claude's job recommendations will be."
+            placeholder="Or paste your resume text here. The more detail, the better Claude's job recommendations will be."
             rows={8}
-            className={`${inputCls} resize-none`}
+            className={`${inputCls} resize-y`}
           />
         </section>
 
